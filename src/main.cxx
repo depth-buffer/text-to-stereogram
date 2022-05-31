@@ -312,6 +312,11 @@ int main(int argc, char * argv[])
         std::cerr << "Depth value must be between 0 and 256" << std::endl;
         return 1;
     }
+    if (l <= 1.0)
+    {
+        std::cerr << "Pattern length divisor must be greater than 1.0" << std::endl;
+        return 1;
+    }
     if (optind < argc)
     {
         if (depthname != nullptr)
