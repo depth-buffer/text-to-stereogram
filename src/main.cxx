@@ -70,11 +70,11 @@ void close_font()
 
 void usage()
 {
-    std::cerr << "Usage: text-to-stereogram -t <tile> [-c] [-w <width>] [-h <height>] [-o <output file>] [-f <font> [-s <size> -d <depth>] <string>] [-m <depth map>]\n";
+    std::cerr << "Usage: text-to-stereogram -t <tile> [-c] [-w <width>] [-h <height>] [-o <output file>] [-f <font> [-s <size> -d <depth>] <string>] [-m <depth map>] [-l <pattern length divisor>]\n";
     std::cerr << "Specify -f and <string> to render text, -m to render geometry.\n";
 }
 
-void draw(SDL_Surface * srcsurface, bool init, int row, bool cross)
+void draw(SDL_Surface * srcsurface, bool init, int row, bool cross, double l)
 {
     SDL_SetSurfaceBlendMode(windowsurface, SDL_BLENDMODE_NONE);
     SDL_SetSurfaceBlendMode(srcsurface, SDL_BLENDMODE_NONE);
@@ -110,9 +110,14 @@ void draw(SDL_Surface * srcsurface, bool init, int row, bool cross)
         SDL_BlitSurface(srcsurface, &src, windowsurface, &dst);
     }
 
-    // Depth disparity coefficient: we want to normalise the depth
-    // range so that the nearest elements are half the tile width
-    double c = (static_cast<double>(srcsurface->w) / 1.52) / 256.0;
+    // Depth disparity coefficient: we want to normalise the depth range so
+    // that the pattern doesn't get down to one pixel or anything ridiculous
+    // (unless that's what the user claims they want).
+    // With a monochrome depthmap we get 256 discrete depth steps; calculate a
+    // coefficient which determines how much of the 0..255 range each pixel of
+    // pattern length increase/decrease represents, whilst also limiting how
+    // short the pattern can get as a proportion of original tile width.
+    double c = (static_cast<double>(srcsurface->w) / l) / 256.0;
     // Render the actual stereogram, row by row
     int y = 0, ylimit = windowsurface->h;
     if (row >= 0)
@@ -232,6 +237,7 @@ int main(int argc, char * argv[])
     int h = 480;
     int s = 24;
     int d = 60;
+    double l = 2.0;
     char const * fontname = nullptr;
     char const * tilename = nullptr;
     char const * outfname = nullptr;
@@ -242,38 +248,55 @@ int main(int argc, char * argv[])
     // Parse command-line options
     {
         int c;
-        while ((c = getopt(argc, argv, "w:h:f:s:t:o:m:cd:")) != -1)
+        while ((c = getopt(argc, argv, "w:h:f:s:t:o:m:cd:l:")) != -1)
         {
             switch (c)
             {
                 case 'w':
+                    // Output width
                     w = std::atoi(optarg);
                     break;
                 case 'h':
+                    // Output height
                     h = std::atoi(optarg);
                     break;
                 case 's':
+                    // Font size
                     s = std::atoi(optarg);
                     break;
                 case 'f':
+                    // Font filename
                     fontname = optarg;
                     break;
                 case 't':
+                    // Input tile image filename
                     tilename = optarg;
                     break;
                 case 'o':
+                    // Output image filename
                     outfname = optarg;
                     break;
                 case 'm':
+                    // Input depthbuffer image filename
                     depthname = optarg;
                     break;
                 case 'c':
+                    // Generate cross-eyed autostereogram
+                    // (as opposed to wall-eyed)
                     cross = true;
                     break;
                 case 'd':
+                    // Depth offset of text 0 (far) .. 255 (near)
                     d = std::atoi(optarg);
                     break;
+                case 'l':
+                    // Pattern length divisor: at the far plane, pattern length
+                    // will be the full width of the input tile; at the near
+                    // plane, it will be tile width divided by this.
+                    l = std::atof(optarg);
+                    break;
                 default:
+                    // Unrecognised
                     usage();
                     return 1;
             }
