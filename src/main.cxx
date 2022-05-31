@@ -14,9 +14,10 @@
 #include <SDL_ttf.h>
 
 SDL_Renderer * renderer = nullptr;
+SDL_Surface * gradientsurface = nullptr;
 SDL_Surface * offsetsurface = nullptr;
 SDL_Surface * rearrsurface = nullptr;
-SDL_Surface * textsurface = nullptr;
+SDL_Surface * depthsurface = nullptr;
 SDL_Surface * tilesurface = nullptr;
 SDL_Surface * windowsurface = nullptr;
 SDL_Texture * texture = nullptr;
@@ -30,6 +31,11 @@ void free_rearrsurface()
 void free_offsetsurface()
 {
     SDL_FreeSurface(offsetsurface);
+}
+
+void free_gradientsurface()
+{
+    SDL_FreeSurface(gradientsurface);
 }
 
 void destroy_texture()
@@ -47,9 +53,9 @@ void free_windowsurface()
     SDL_FreeSurface(windowsurface);
 }
 
-void free_textsurface()
+void free_depthsurface()
 {
-    SDL_FreeSurface(textsurface);
+    SDL_FreeSurface(depthsurface);
 }
 
 void destroy_renderer()
@@ -64,31 +70,53 @@ void close_font()
 
 void usage()
 {
-    std::cerr << "Usage: text-to-stereogram -f <font> -t <tile> [-w <width>] [-h <height>] [-o <output file>] [<string>]\n";
+    std::cerr << "Usage: text-to-stereogram -f <font> -t <tile> [-c] [-m <depth map>] [-w <width>] [-h <height>] [-o <output file>] [<string>]\n";
 }
 
-void draw(SDL_Surface * srcsurface)
+void draw(SDL_Surface * srcsurface, bool init, int row, bool cross)
 {
-    std::srand(42);
-
-    // Blit text to the image
+    if (init)
     {
-        SDL_Rect dst = {(windowsurface->w / 2) - (textsurface->w / 2), (windowsurface->h / 2) - (textsurface->h / 2), 0, 0};
-        SDL_BlitSurface(textsurface, nullptr, windowsurface, &dst);
+        std::srand(42);
+        // Blit depth map to the image
+        {
+            SDL_Rect dst = {((windowsurface->w / 2) - (depthsurface->w / 2)) + (srcsurface->w / 2), (windowsurface->h / 2) - (depthsurface->h / 2), 0, 0};
+            SDL_BlitSurface(depthsurface, nullptr, windowsurface, &dst);
+        }
     }
 
-    // Blit one strip of tile image to window-sized surface
-    for (int y = 0; y < windowsurface->h; y += srcsurface->h)
+    if (row < 0)
     {
-        SDL_Rect dst = {0, y, 0, 0};
-        SDL_BlitSurface(srcsurface, nullptr, windowsurface, &dst);
+        // We're doing all rows
+        // Blit one strip of tile image to window-sized surface
+        for (int y = 0; y < windowsurface->h; y += srcsurface->h)
+        {
+            SDL_Rect dst = {0, y, 0, 0};
+            SDL_BlitSurface(srcsurface, nullptr, windowsurface, &dst);
+        }
+    }
+    else
+    {
+        // Blit just the current row of the tile image to the surface
+        int y = row;
+        while (y >= srcsurface->h)
+            y -= srcsurface->h;
+        SDL_Rect src = {0, y, srcsurface->w, 1};
+        SDL_Rect dst = {0, row, 0, 0};
+        SDL_BlitSurface(srcsurface, &src, windowsurface, &dst);
     }
 
     // Depth disparity coefficient: we want to normalise the depth
     // range so that the nearest elements are half the tile width
-    double c = (static_cast<double>(srcsurface->w) / 6.0) / 256.0;
+    double c = (static_cast<double>(srcsurface->w) / 2.0) / 256.0;
     // Render the actual stereogram, row by row
-    for (int y = 0; y < windowsurface->h; ++y)
+    int y = 0, ylimit = windowsurface->h;
+    if (row >= 0)
+    {
+        y = row;
+        ylimit = row + 1;
+    }
+    for (; y < ylimit; ++y)
     {
         // State: previous depthbuffer value, current repeating pattern, pattern length.
         // Copy current row of initial tile into pattern.
@@ -112,11 +140,15 @@ void draw(SDL_Surface * srcsurface)
             current &= windowsurface->format->Rmask;
             current >>= windowsurface->format->Rshift;
             current <<= windowsurface->format->Rloss;
-            // Shorten or lengthen pattern accordingly
-            if (current > prev)
+            // Shorten or lengthen pattern accordingly.
+            // In wall-eyed mode: shorten when pixels get nearer; lengthen for further.
+            // In cross-eyed mode: lengthen when pixels get further; shorten for nearer.
+            // NB: The comparisons look the wrong way round because we assume inverted
+            // depth maps, i.e. 0 is the far plane, 255 near.
+            if (cross ? (current < prev) : (current > prev))
             {
-                // Current pixel is closer. Shorten the pattern.
-                std::uint32_t disparity = current - prev;
+                // Shorten the pattern.
+                std::uint32_t disparity = cross ? (prev - current) : (current - prev);
                 double d = static_cast<double>(disparity) * c;
                 double newlen = len - d;
                 disparity = static_cast<std::uint32_t>(pattern.size() - std::lround(newlen));
@@ -142,10 +174,10 @@ void draw(SDL_Surface * srcsurface)
                 }
                 len = newlen;
             }
-            else if (current < prev)
+            else if (cross ? (current > prev) : (current < prev))
             {
-                // Current pixel is further away. Lengthen the pattern.
-                std::uint32_t disparity = prev - current;
+                // Lengthen the pattern.
+                std::uint32_t disparity = cross ? (current - prev) : (prev - current);
                 double d = static_cast<double>(disparity) * c;
                 double newlen = len + d;
                 disparity = static_cast<std::uint32_t>(std::lround(newlen) - pattern.size());
@@ -198,12 +230,14 @@ int main(int argc, char * const * argv)
     char const * fontname = nullptr;
     char const * tilename = nullptr;
     char const * outfname = nullptr;
+    char const * depthname = nullptr;
     char const * text = "Hello, world!";
+    bool cross = false;
 
     // Parse command-line options
     {
         int c;
-        while ((c = getopt(argc, argv, "w:h:f:s:t:o:")) != -1)
+        while ((c = getopt(argc, argv, "w:h:f:s:t:o:m:c")) != -1)
         {
             switch (c)
             {
@@ -225,6 +259,12 @@ int main(int argc, char * const * argv)
                 case 'o':
                     outfname = optarg;
                     break;
+                case 'm':
+                    depthname = optarg;
+                    break;
+                case 'c':
+                    cross = true;
+                    break;
                 default:
                     usage();
                     return 1;
@@ -237,21 +277,14 @@ int main(int argc, char * const * argv)
         return 1;
     }
     if (optind < argc)
+    {
+        if (depthname != nullptr)
+        {
+            std::cerr << "Please specify just a string or a depth map, not both" << std::endl;
+            return 1;
+        }
         text = argv[optind];
-
-    // Init SDL_ttf
-    if (TTF_Init() != 0)
-    {
-        std::cerr << "Unable to initialise SDL_ttf: " << TTF_GetError() << std::endl;
-        return 1;
     }
-    std::atexit(TTF_Quit);
-    if (!(font = TTF_OpenFont(fontname, s)))
-    {
-        std::cerr << "Unable to open font: " << TTF_GetError() << std::endl;
-        return 1;
-    }
-    std::atexit(close_font);
 
     // Init SDL
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
@@ -277,22 +310,50 @@ int main(int argc, char * const * argv)
     }
     std::atexit(destroy_renderer);
 
-    // Render text
-    textsurface = TTF_RenderUTF8_Solid(font, text, {255, 255, 255});
-    if (!textsurface)
-    {
-        std::cerr << "Unable to render text surface: " << TTF_GetError() << std::endl;
-        return 1;
-    }
-    std::atexit(free_textsurface);
-
-    // Load tile image
+    // Init SDL_image
     if (IMG_Init(0) != 0)
     {
         std::cerr << "Unable to initialise SDL_image: " << IMG_GetError() << std::endl;
         return 1;
     }
     std::atexit(IMG_Quit);
+
+    if (depthname == nullptr)
+    {
+        // Init SDL_ttf
+        if (TTF_Init() != 0)
+        {
+            std::cerr << "Unable to initialise SDL_ttf: " << TTF_GetError() << std::endl;
+            return 1;
+        }
+        std::atexit(TTF_Quit);
+        if (!(font = TTF_OpenFont(fontname, s)))
+        {
+            std::cerr << "Unable to open font: " << TTF_GetError() << std::endl;
+            return 1;
+        }
+        std::atexit(close_font);
+        // Render text
+        depthsurface = TTF_RenderUTF8_Solid(font, text, {15, 15, 15});
+        if (!depthsurface)
+        {
+            std::cerr << "Unable to render text surface: " << TTF_GetError() << std::endl;
+            return 1;
+        }
+    }
+    else
+    {
+        // Load custom depth map
+        depthsurface = IMG_Load(depthname);
+        if (!depthsurface)
+        {
+            std::cerr << "Unable to load depth map image: " << IMG_GetError() << std::endl;
+            return 1;
+        }
+    }
+    std::atexit(free_depthsurface);
+
+    // Load tile image
     tilesurface = IMG_Load(tilename);
     if (!tilesurface)
     {
@@ -300,9 +361,9 @@ int main(int argc, char * const * argv)
         return 1;
     }
     std::atexit(free_tilesurface);
-    if ((tilesurface->w > 256) || (tilesurface->h > 256))
+    if ((tilesurface->w > 256) || (tilesurface->h > 65536))
     {
-        std::cerr << "Tile image too big; max. dimensions 256*256" << std::endl;
+        std::cerr << "Tile image too big; max. dimensions 256*65536" << std::endl;
         return 1;
     }
 
@@ -336,22 +397,26 @@ int main(int argc, char * const * argv)
         SDL_FreeSurface(old);
     }
 
-    // Render a simple x/y gradient grid
-    offsetsurface = SDL_DuplicateSurface(tilesurface);
-    if (!offsetsurface)
+    // Render a simple x/y gradient grid.
+    // Split y coordinate over two colour components, so we can have a max.
+    // height of 256*256, allowing fully vertically unique tiles.
+    gradientsurface = SDL_DuplicateSurface(tilesurface);
+    if (!gradientsurface)
     {
         std::cerr << "Unable to create offset surface: " << SDL_GetError() << std::endl;
         return 1;
     }
-    std::atexit(free_offsetsurface);
-    for (int y = 0; y < offsetsurface->h; ++y)
+    std::atexit(free_gradientsurface);
+    for (int y = 0; y < gradientsurface->h; ++y)
     {
         std::uint32_t * pixel =
             reinterpret_cast<std::uint32_t*>(
-                    static_cast<std::uint8_t*>(offsetsurface->pixels) + (offsetsurface->pitch * y));
-        for (int x = 0; x < offsetsurface->w; ++x, ++pixel)
+                    static_cast<std::uint8_t*>(gradientsurface->pixels) + (gradientsurface->pitch * y));
+        for (int x = 0; x < gradientsurface->w; ++x, ++pixel)
         {
-            *(pixel) = SDL_MapRGB(offsetsurface->format, x, y, 0);
+            int g = y >> 8;
+            int b = y - (g << 8);
+            *(pixel) = SDL_MapRGB(gradientsurface->format, x, g, b);
         }
     }
 
@@ -363,12 +428,12 @@ int main(int argc, char * const * argv)
     }
 
     // Check we have enough horizontal space. One tile width each side of the depth image.
-    if ((w < (tilesurface->w * 2)) || (((w - (tilesurface->w * 2))) < textsurface->w))
+    if ((w < (tilesurface->w * 2)) || (((w - (tilesurface->w * 2))) < depthsurface->w))
     {
-        std::cout << "Warning: Image not wide enough! Should be at least " << ((tilesurface->w * 2) + textsurface->w) << std::endl;
+        std::cout << "Warning: Image not wide enough! Should be at least " << ((tilesurface->w * 2) + depthsurface->w) << std::endl;
     }
 
-    draw(offsetsurface);
+    draw(gradientsurface, true, -1, cross);
 
     // Duplicate the original tile again, as a precursor to making the rearranged tile
     rearrsurface = SDL_DuplicateSurface(tilesurface);
@@ -379,44 +444,65 @@ int main(int argc, char * const * argv)
     }
     std::atexit(free_rearrsurface);
 
-    // Sample offsets from tile-sized region of image centre to
-    // create a new tile which should line up with the original image:
-    //   - Start with the original tile
-    //   - R & G components in the sampled offsets tell us the X and Y
-    //     coordinates within the tile that will end up at that point
-    //   - Loop over tile, copying each pixel to the given X & Y coordinates
-    //   - When reconstructed and sampled in that order... it should reassemble
-    //     into something resembling the original image, in the centre!
+    // Second pass: create a unique tile per row, reverse-scrambled so that it
+    // should look its least distorted in the centre of the final image.
+    offsetsurface = SDL_DuplicateSurface(windowsurface);
+    if (!offsetsurface)
     {
-        for (int y = (h / 2) - (tilesurface->h / 2), i = 0; i < tilesurface->h; ++y, ++i)
+        std::cerr << "Unable to copy offset map: " << SDL_GetError() << std::endl;
+        return 1;
+    }
+    std::atexit(free_offsetsurface);
+    SDL_FillRect(windowsurface, nullptr, SDL_MapRGB(windowsurface->format, 0, 0, 0));
+    {
+        bool init = true;
+        for (int row = 0; row < offsetsurface->h; ++row)
         {
+            // Sample offsets from tile-width region in the centre of the
+            // current row, to create a new tile which should line up with the
+            // original image:
+            //   - Start with the original tile
+            //   - R & G components in the sampled offsets tell us the X and Y
+            //     coordinates within the tile that will end up at that point
+            //   - Loop over tile, copying each pixel to the given X & Y coordinates
+            //   - When reconstructed and sampled in that order... it should reassemble
+            //     into something resembling the original image, in the centre!
+            SDL_BlitSurface(tilesurface, nullptr, rearrsurface, nullptr);
+            int i = row;
+            while (i >= tilesurface->h)
+                i -= tilesurface->h;
             std::uint32_t* src = reinterpret_cast<std::uint32_t*>(
                     static_cast<std::uint8_t*>(tilesurface->pixels) + (tilesurface->pitch * i));
             std::uint32_t* off = reinterpret_cast<std::uint32_t*>(
-                    static_cast<std::uint8_t*>(windowsurface->pixels) + (windowsurface->pitch * y))
+                    static_cast<std::uint8_t*>(offsetsurface->pixels) + (offsetsurface->pitch * row))
                     + ((w / 2) - (tilesurface->w / 2));
             for (int x = 0; x < tilesurface->w; ++x, ++off)
             {
                 // Grab X & Y offsets from R & G colour components
                 std::uint32_t xo = *off;
-                xo &= windowsurface->format->Rmask;
-                xo >>= windowsurface->format->Rshift;
-                xo <<= windowsurface->format->Rloss;
-                std::uint32_t yo = *off;
-                yo &= windowsurface->format->Gmask;
-                yo >>= windowsurface->format->Gshift;
-                yo <<= windowsurface->format->Gloss;
+                xo &= offsetsurface->format->Rmask;
+                xo >>= offsetsurface->format->Rshift;
+                xo <<= offsetsurface->format->Rloss;
+                std::uint32_t g = *off;
+                g &= offsetsurface->format->Gmask;
+                g >>= offsetsurface->format->Gshift;
+                g <<= offsetsurface->format->Gloss;
+                std::uint32_t b = *off;
+                b &= offsetsurface->format->Bmask;
+                b >>= offsetsurface->format->Bshift;
+                b <<= offsetsurface->format->Bloss;
+                std::uint32_t yo = b + (g << 8);
                 // Copy from coordinates in original tile to offset pixel in rearranged tile
                 std::uint32_t* dst = reinterpret_cast<std::uint32_t*>(
                         static_cast<std::uint8_t*>(rearrsurface->pixels) + (rearrsurface->pitch * yo))
                         + xo;
                 *dst = *(src + x);
             }
+            // Render the row
+            draw(rearrsurface, init, row, cross);
+            init = false;
         }
     }
-
-    SDL_FillRect(windowsurface, nullptr, SDL_MapRGB(windowsurface->format, 0, 0, 0));
-    draw(rearrsurface);
 
     // Save image if desired
     if (outfname != nullptr)
