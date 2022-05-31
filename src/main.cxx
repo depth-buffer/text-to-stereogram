@@ -113,10 +113,13 @@ void draw(SDL_Surface * srcsurface, bool init, int row, bool cross, double l)
     // Depth disparity coefficient: we want to normalise the depth range so
     // that the pattern doesn't get down to one pixel or anything ridiculous
     // (unless that's what the user claims they want).
-    // With a monochrome depthmap we get 256 discrete depth steps; calculate a
-    // coefficient which determines how much of the 0..255 range each pixel of
-    // pattern length increase/decrease represents, whilst also limiting how
-    // short the pattern can get as a proportion of original tile width.
+    // With a monochrome depthmap we get 256 discrete depth steps; work out
+    // how many pixels of pattern length change each step represents. To stop
+    // the pattern length degenerating to something silly like 1 pixel, first
+    // divide the pattern length by the pattern length divisor. A divisor of
+    // 2 means the pattern will shorten by up to half its original length, a
+    // divisor of 4 means it will only shorten by up to a quarter of its
+    // original length.
     double c = (static_cast<double>(srcsurface->w) / l) / 256.0;
     // Render the actual stereogram, row by row
     int y = 0, ylimit = windowsurface->h;
@@ -477,7 +480,7 @@ int main(int argc, char * argv[])
         std::cout << "Warning: Image not wide enough! Should be at least " << ((tilesurface->w * 2) + depthsurface->w) << std::endl;
     }
 
-    draw(gradientsurface, true, -1, cross);
+    draw(gradientsurface, true, -1, cross, l);
 
     // Duplicate the original tile again, as a precursor to making the rearranged tile
     rearrsurface = SDL_DuplicateSurface(tilesurface);
@@ -548,7 +551,7 @@ int main(int argc, char * argv[])
                 *dst = *(src + x);
             }
             // Render the row
-            draw(rearrsurface, init, row, cross);
+            draw(rearrsurface, init, row, cross, l);
             init = false;
         }
     }

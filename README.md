@@ -27,9 +27,11 @@ Optional options:
 * `-c` to generate output for cross-eyed viewing (default is
   wall-eyed/divergent)
 * `-l` to specify the pattern length divisor
-  * With an input tile image 256 pixels wide, and a divisor of 2.0, the pattern
-    length will be reduced to 256 / 2 = 128 pixels for geometry at the near
-    plane. Defaults to 2.0.
+  * With the default divisor of 2.0, the pattern will shorten by up to half the
+    original tile width. A divisor of 4.0 means it will only shorten by up to
+    one quarter of the original width (at its shortest, it will be 3/4ths of
+    the original width), preserving more of the original tile, but "compressing"
+    the geometry into a smaller depth range.
 
 Additional options in text mode:
 * `-s <number>` to specify font size
@@ -161,10 +163,10 @@ Tips
   a large image gets so large that it is difficult to track over the entire
   surface without breaking away, and/or you've tried everything else but still
   have some repeating phantom objects, tweaking the `-l` argument can help. By
-  reducing it, you limit the amount of distance between the nearest and furthest
-  elements, "compressing" the image into a smaller depth range. This also keeps
-  the pattern longer at its shortest points, which can eliminate accidentally
-  getting some earlier geometry "stuck" in the repeating part.
+  increasing it, you limit the amount of distance between the nearest and
+  furthest elements, "compressing" the image into a smaller depth range. This
+  also keeps the pattern longer at its shortest points, which can eliminate
+  accidentally getting some earlier geometry "stuck" in the repeating part.
 * There are two kinds of autostereogram: ones designed to be viewed by going
   cross-eyed (described above), and ones designed to be viewed by going
   "wall-eyed" (eyes go outwards until there's an overlap, instead of inwards).
