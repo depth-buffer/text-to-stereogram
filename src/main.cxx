@@ -70,7 +70,7 @@ void close_font()
 
 void usage()
 {
-    std::cerr << "Usage: text-to-stereogram -t <tile> [-c] [-w <width>] [-h <height>] [-o <output file>] [-f <font> -d <depth> <string>] [-m <depth map>]\n";
+    std::cerr << "Usage: text-to-stereogram -t <tile> [-c] [-w <width>] [-h <height>] [-o <output file>] [-f <font> [-s <size> -d <depth>] <string>] [-m <depth map>]\n";
     std::cerr << "Specify -f and <string> to render text, -m to render geometry.\n";
 }
 
