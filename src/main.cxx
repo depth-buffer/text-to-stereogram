@@ -70,7 +70,8 @@ void close_font()
 
 void usage()
 {
-    std::cerr << "Usage: text-to-stereogram -f <font> -t <tile> [-c] [-m <depth map>] [-w <width>] [-h <height>] [-o <output file>] [<string>]\n";
+    std::cerr << "Usage: text-to-stereogram -t <tile> [-c] [-w <width>] [-h <height>] [-o <output file>] [-f <font> <string>] [-m <depth map>]\n";
+    std::cerr << "Specify -f and <string> to render text, -m to render geometry.\n";
 }
 
 void draw(SDL_Surface * srcsurface, bool init, int row, bool cross)
@@ -274,7 +275,7 @@ int main(int argc, char * const * argv)
             }
         }
     }
-    if ((fontname == nullptr) || (tilename == nullptr) || (w <= 0) || (h <= 0) || (s <= 0))
+    if (((fontname == nullptr) && (depthname == nullptr)) || (tilename == nullptr) || (w <= 0) || (h <= 0) || (s <= 0))
     {
         usage();
         return 1;
@@ -283,7 +284,7 @@ int main(int argc, char * const * argv)
     {
         if (depthname != nullptr)
         {
-            std::cerr << "Please specify just a string or a depth map, not both" << std::endl;
+            std::cerr << "Please specify just a string & font pair, or a depth map, not both" << std::endl;
             return 1;
         }
         text = argv[optind];
