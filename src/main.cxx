@@ -70,7 +70,7 @@ void close_font()
 
 void usage()
 {
-    std::cerr << "Usage: text-to-stereogram -t <tile> [-c] [-w <width>] [-h <height>] [-o <output file>] [-f <font> <string>] [-m <depth map>]\n";
+    std::cerr << "Usage: text-to-stereogram -t <tile> [-c] [-w <width>] [-h <height>] [-o <output file>] [-f <font> -d <depth> <string>] [-m <depth map>]\n";
     std::cerr << "Specify -f and <string> to render text, -m to render geometry.\n";
 }
 
@@ -231,6 +231,7 @@ int main(int argc, char * const * argv)
     int w = 640;
     int h = 480;
     int s = 24;
+    int d = 60;
     char const * fontname = nullptr;
     char const * tilename = nullptr;
     char const * outfname = nullptr;
@@ -241,7 +242,7 @@ int main(int argc, char * const * argv)
     // Parse command-line options
     {
         int c;
-        while ((c = getopt(argc, argv, "w:h:f:s:t:o:m:c")) != -1)
+        while ((c = getopt(argc, argv, "w:h:f:s:t:o:m:cd:")) != -1)
         {
             switch (c)
             {
@@ -269,6 +270,9 @@ int main(int argc, char * const * argv)
                 case 'c':
                     cross = true;
                     break;
+                case 'd':
+                    d = std::atoi(optarg);
+                    break;
                 default:
                     usage();
                     return 1;
@@ -278,6 +282,11 @@ int main(int argc, char * const * argv)
     if (((fontname == nullptr) && (depthname == nullptr)) || (tilename == nullptr) || (w <= 0) || (h <= 0) || (s <= 0))
     {
         usage();
+        return 1;
+    }
+    if ((fontname != nullptr) && ((d <= 0) || (d > 255)))
+    {
+        std::cerr << "Depth value must be between 0 and 256" << std::endl;
         return 1;
     }
     if (optind < argc)
@@ -338,7 +347,8 @@ int main(int argc, char * const * argv)
         }
         std::atexit(close_font);
         // Render text
-        depthsurface = TTF_RenderUTF8_Solid(font, text, {15, 15, 15});
+        std::uint8_t depth = static_cast<std::uint8_t>(d);
+        depthsurface = TTF_RenderUTF8_Solid(font, text, {depth, depth, depth});
         if (!depthsurface)
         {
             std::cerr << "Unable to render text surface: " << TTF_GetError() << std::endl;
