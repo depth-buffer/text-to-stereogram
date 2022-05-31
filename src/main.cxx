@@ -225,7 +225,7 @@ void draw(SDL_Surface * srcsurface, bool init, int row, bool cross)
     }
 }
 
-int main(int argc, char * const * argv)
+int main(int argc, char * argv[])
 {
     // Default options
     int w = 640;
