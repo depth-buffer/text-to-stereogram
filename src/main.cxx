@@ -75,6 +75,9 @@ void usage()
 
 void draw(SDL_Surface * srcsurface, bool init, int row, bool cross)
 {
+    SDL_SetSurfaceBlendMode(windowsurface, SDL_BLENDMODE_NONE);
+    SDL_SetSurfaceBlendMode(srcsurface, SDL_BLENDMODE_NONE);
+
     if (init)
     {
         std::srand(42);
@@ -108,7 +111,7 @@ void draw(SDL_Surface * srcsurface, bool init, int row, bool cross)
 
     // Depth disparity coefficient: we want to normalise the depth
     // range so that the nearest elements are half the tile width
-    double c = (static_cast<double>(srcsurface->w) / 2.0) / 256.0;
+    double c = (static_cast<double>(srcsurface->w) / 1.52) / 256.0;
     // Render the actual stereogram, row by row
     int y = 0, ylimit = windowsurface->h;
     if (row >= 0)
@@ -361,14 +364,14 @@ int main(int argc, char * const * argv)
         return 1;
     }
     std::atexit(free_tilesurface);
-    if ((tilesurface->w > 256) || (tilesurface->h > 65536))
+    if ((tilesurface->w > 65536) || (tilesurface->h > 65536))
     {
-        std::cerr << "Tile image too big; max. dimensions 256*65536" << std::endl;
+        std::cerr << "Tile image too big; max. dimensions 65536*65536" << std::endl;
         return 1;
     }
 
     // Create a surface the same size as the window
-    windowsurface = SDL_CreateRGBSurface(0, w, h, 32, 0, 0, 0, 0);
+    windowsurface = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB32);
     if (!windowsurface)
     {
         std::cerr << "Unable to create window-sized surface: " << SDL_GetError() << std::endl;
@@ -398,9 +401,9 @@ int main(int argc, char * const * argv)
     }
 
     // Render a simple x/y gradient grid.
-    // Split y coordinate over two colour components, so we can have a max.
-    // height of 256*256, allowing fully vertically unique tiles.
-    gradientsurface = SDL_DuplicateSurface(tilesurface);
+    // Split x & y coordinates over two colour components each, so we can have
+    // max. values of 256*256 = 65536, supporting up to 65536*65536 tiles.
+    gradientsurface = SDL_CreateRGBSurfaceWithFormat(0, tilesurface->w, tilesurface->h, 32, SDL_PIXELFORMAT_ARGB32);
     if (!gradientsurface)
     {
         std::cerr << "Unable to create offset surface: " << SDL_GetError() << std::endl;
@@ -414,9 +417,11 @@ int main(int argc, char * const * argv)
                     static_cast<std::uint8_t*>(gradientsurface->pixels) + (gradientsurface->pitch * y));
         for (int x = 0; x < gradientsurface->w; ++x, ++pixel)
         {
+            int a = x >> 8;
+            int r = x - (a << 8);
             int g = y >> 8;
             int b = y - (g << 8);
-            *(pixel) = SDL_MapRGB(gradientsurface->format, x, g, b);
+            *(pixel) = SDL_MapRGBA(gradientsurface->format, r, g, b, a);
         }
     }
 
@@ -478,11 +483,16 @@ int main(int argc, char * const * argv)
                     + ((w / 2) - (tilesurface->w / 2));
             for (int x = 0; x < tilesurface->w; ++x, ++off)
             {
-                // Grab X & Y offsets from R & G colour components
-                std::uint32_t xo = *off;
-                xo &= offsetsurface->format->Rmask;
-                xo >>= offsetsurface->format->Rshift;
-                xo <<= offsetsurface->format->Rloss;
+                // Grab X & Y offsets from A/R & G/B colour components
+                std::uint32_t a = *off;
+                a &= offsetsurface->format->Amask;
+                a >>= offsetsurface->format->Ashift;
+                a <<= offsetsurface->format->Aloss;
+                std::uint32_t r = *off;
+                r &= offsetsurface->format->Rmask;
+                r >>= offsetsurface->format->Rshift;
+                r <<= offsetsurface->format->Rloss;
+                std::uint32_t xo = r + (a << 8);
                 std::uint32_t g = *off;
                 g &= offsetsurface->format->Gmask;
                 g >>= offsetsurface->format->Gshift;

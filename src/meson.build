@@ -1,4 +1,4 @@
-sdl = dependency('sdl2', version: '>=2')
+sdl = dependency('sdl2', version: '>=2.0.5')
 ttf = dependency('SDL2_ttf', version: '>=2')
 img = dependency('SDL2_image', version: '>=2')
 
